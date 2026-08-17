@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="en" dir="ltr" class="bg-gray-50">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="restaurant-api/public/favicon.ico" rel="icon" type="image/x-icon">
+    <link href="restaurant-api\public\favicon.ico" rel="icon" type="image/x-icon">
     <title>Yasou Taverna POS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -69,7 +68,8 @@
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-    <script src="app.js?v=20260812-fish-image-test"></script>
+    <script src="menu-image-map.js?v=20260813-menu-images-linked"></script>
+    <script src="app.js?v=20260813-menu-category-order"></script>
    
 </head>
 <body x-cloak x-data="app()" x-init="initApp()" :dir="direction" :class="{'rtl': direction === 'rtl'}">
@@ -290,14 +290,9 @@
                         </div>
                     </div>
                     
-                    <!-- Category Tabs -->
-                    <div class="mb-6">
-                        <div class="flex flex-wrap gap-2 border-b">
-                            <button @click="posActiveCategory = 'all'" 
-                                    class="px-4 py-2 rounded-t-lg font-medium transition"
-                                    :class="{'bg-primary text-white': posActiveCategory === 'all', 'bg-gray-100 text-gray-700 hover:bg-gray-200': posActiveCategory !== 'all'}">
-                                <span x-text="language === 'he' ? 'כל המנות' : 'All Dishes'"></span>
-                            </button>
+                        <!-- Category Tabs -->
+                        <div class="mb-6">
+                            <div class="flex flex-wrap gap-2 border-b">
                             <template x-for="category in recipeCategories" :key="category">
                                 <button @click="posActiveCategory = category" 
                                         class="px-4 py-2 rounded-t-lg font-medium transition"
@@ -307,6 +302,11 @@
                                             x-text="getFilteredRecipes().filter(r => r.category === category).length"></span>
                             </button>
                         </template>
+                            <button @click="posActiveCategory = 'all'" 
+                                    class="px-4 py-2 rounded-t-lg font-medium transition"
+                                    :class="{'bg-primary text-white': posActiveCategory === 'all', 'bg-gray-100 text-gray-700 hover:bg-gray-200': posActiveCategory !== 'all'}">
+                                <span x-text="language === 'he' ? 'כל המנות' : 'All Dishes'"></span>
+                            </button>
                         </div>
                     </div>
                     
@@ -314,8 +314,11 @@
                     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
                         <template x-for="recipe in getFilteredRecipes()" :key="recipe.id">
                             <div class="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-lg transition-all duration-200 cursor-pointer group relative overflow-hidden"
+                                 :data-image-key="getRecipeImageKey(recipe)"
+                                 :data-image-folder="getRecipeImageFolder(recipe)"
                                  @click="addToOrder(recipe)">
                                 <!-- Recipe Image -->
+                                <!-- Image key example: Coke-Zero -->
                                 <div class="w-full h-32 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg mb-3 overflow-hidden flex items-center justify-center">
                                     <template x-if="getRecipeImage(recipe)">
                                         <img :src="getRecipeImage(recipe)" :alt="getRecipeName(recipe)" class="w-full h-full object-cover">
@@ -2004,6 +2007,28 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Backend Settings -->
+                    <div>
+                        <h4 class="font-bold mb-3" x-text="translations.backendSettings"></h4>
+                        <div class="space-y-3">
+                            <div class="flex items-center">
+                                <input type="checkbox" x-model="settings.backendEnabled" id="backendEnabled"
+                                       class="mr-2">
+                                <label for="backendEnabled" class="text-sm" x-text="translations.backendEnabled"></label>
+                            </div>
+                            <div class="flex items-center">
+                                <input type="checkbox" x-model="settings.printViaBackend" id="printViaBackend"
+                                       class="mr-2">
+                                <label for="printViaBackend" class="text-sm" x-text="translations.printViaBackend"></label>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-1" x-text="translations.backendUrl"></label>
+                                <input type="url" x-model="settings.backendUrl" dir="ltr"
+                                       class="w-full border rounded-lg px-3 py-2 text-left">
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="flex justify-end gap-3 mt-6">
@@ -2635,7 +2660,7 @@
 
         <!-- Audio element for new order notification -->
     <audio id="newOrderSound" preload="auto">
-        <source src="restaurant-api/public/mixkit-alarm-digital-clock-beep-989.mp3" type="audio/mpeg">
+        <source src="http://127.0.0.1:8001/mixkit-alarm-digital-clock-beep-989.mp3" type="audio/mpeg">
     </audio>
 </body>
 </html>
