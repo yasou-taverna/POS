@@ -1018,6 +1018,13 @@ document.addEventListener('alpine:init', () => {
                         changed = true;
                         return { ...recipe, category: 'Alcoholic Drinks' };
                     }
+                    if (['Hummus with mini schnitzel', 'Hummus with minced meat'].includes(recipe.name)) {
+                        const tags = Array.isArray(recipe.tags) ? recipe.tags.filter(tag => tag !== 'vegetarian') : [];
+                        if (tags.length !== (recipe.tags || []).length) {
+                            changed = true;
+                            return { ...recipe, tags };
+                        }
+                    }
                     return recipe;
                 });
                 const isDemoRecipeList = this.recipes.length > 0 && this.recipes.every(recipe => demoRecipeNames.includes(recipe.name));
@@ -3696,7 +3703,6 @@ document.addEventListener('alpine:init', () => {
                                 "difficulty": "easy",
                                 "allergens": [],
                                 "tags": [
-                                          "vegetarian",
                                           "popular"
                                 ],
                                 "ingredients": [],
@@ -3719,7 +3725,6 @@ document.addEventListener('alpine:init', () => {
                                 "difficulty": "easy",
                                 "allergens": [],
                                 "tags": [
-                                          "vegetarian",
                                           "popular"
                                 ],
                                 "ingredients": [],
