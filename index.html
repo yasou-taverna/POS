@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="restaurant-api\public\favicon.ico" rel="icon" type="image/x-icon">
+    <link href="restaurant-api/public/favicon.ico" rel="icon" type="image/x-icon">
     <title>Yasou Taverna POS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -70,7 +70,7 @@
     </style>
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <script src="menu-image-map.js?v=20260821-menu-images-linked"></script>
-    <script src="app.js?v=20260813-menu-category-order"></script>
+    <script src="app.js?v=20260821-image-helpers"></script>
    
 </head>
 <body x-cloak x-data="app()" x-init="initApp()" :dir="direction" :class="{'rtl': direction === 'rtl'}">
@@ -2660,8 +2660,6 @@
         </div>
 
         <!-- Audio element for new order notification -->
-    <audio id="newOrderSound" preload="auto">
-        <source src="http://127.0.0.1:8001/mixkit-alarm-digital-clock-beep-989.mp3" type="audio/mpeg">
-    </audio>
+    <audio id="newOrderSound" preload="none"></audio>
 </body>
 </html>
