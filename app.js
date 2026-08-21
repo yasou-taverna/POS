@@ -80,7 +80,7 @@ document.addEventListener('alpine:init', () => {
         // POS State Variables
         posSearchTerm: '',
         posFilterCategory: 'all',
-        posSortBy: 'name',
+        posSortBy: 'menu',
         posQuickFilter: 'all',
         posActiveCategory: 'all',
         showRecipeForm: false,
@@ -155,7 +155,10 @@ document.addEventListener('alpine:init', () => {
             printFooter: true,
             autoPrint: false,
             receiptWidth: 80,
-            fontSize: 12
+            fontSize: 12,
+            backendEnabled: true,
+            backendUrl: 'http://127.0.0.1:8001/api',
+            printViaBackend: true
         },
         
         // Tables
@@ -573,9 +576,13 @@ document.addEventListener('alpine:init', () => {
             contactInfo: 'Contact Information',
             receiptSettings: 'Receipt Settings',
             printSettings: 'Print Settings',
+            backendSettings: 'Backend Settings',
             logoUpload: 'Upload Logo',
             receiptFooter: 'Receipt Footer',
             autoPrint: 'Auto Print',
+            backendEnabled: 'Save orders to backend',
+            backendUrl: 'Backend URL',
+            printViaBackend: 'Print through backend',
             receiptWidth: 'Receipt Width (mm)',
             fontSize: 'Font Size (pt)'
         },
@@ -847,9 +854,13 @@ document.addEventListener('alpine:init', () => {
             contactInfo: 'פרטי קשר',
             receiptSettings: 'הגדרות קבלה',
             printSettings: 'הגדרות הדפסה',
+            backendSettings: 'הגדרות שרת',
             logoUpload: 'העלאת לוגו',
             receiptFooter: 'טקסט תחתון בקבלה',
             autoPrint: 'הדפסה אוטומטית',
+            backendEnabled: 'שמירת הזמנות בשרת',
+            backendUrl: 'כתובת השרת',
+            printViaBackend: 'הדפסה דרך השרת',
             receiptWidth: 'רוחב קבלה (מ״מ)',
             fontSize: 'גודל גופן (נק׳)',
             
@@ -915,6 +926,7 @@ document.addEventListener('alpine:init', () => {
             
             // Initialize real-time sync
             this.initRealtimeSync();
+            this.loadOrdersFromBackend();
         },
 
         applyYasouDefaults() {
@@ -1150,11 +1162,164 @@ document.addEventListener('alpine:init', () => {
                 alert('Error saving orders. Please check your browser storage.');
             }
         },
+
+        getBackendUrl() {
+            return (this.settings?.backendUrl || 'http://127.0.0.1:8001/api').replace(/\/+$/, '');
+        },
+
+        async backendRequest(path, options = {}) {
+            if (this.settings?.backendEnabled === false) {
+                return null;
+            }
+
+            const response = await fetch(`${this.getBackendUrl()}${path}`, {
+                method: options.method || 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(options.headers || {})
+                },
+                body: options.body,
+                mode: 'cors'
+            });
+
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error(data.message || 'Backend request failed');
+            }
+
+            return data;
+        },
+
+        buildBackendOrderPayload(order) {
+            return {
+                client_order_id: String(order.clientOrderId || order.id),
+                type: order.type || 'dine-in',
+                table_number: order.tableNumber || null,
+                customer_name: order.customerName || null,
+                guests: order.guests || null,
+                subtotal: Number(order.subtotal || 0),
+                tax: Number(order.tax || 0),
+                delivery_fee: Number(order.deliveryFee || order.delivery_fee || 0),
+                total: Number(order.total || 0),
+                items: (order.items || []).map(item => ({
+                    recipe_id: item.id || item.recipe_id || null,
+                    name: item.name || item.nameHe || item.nameEn || 'Item',
+                    name_he: item.nameHe || item.name || null,
+                    price: Number(item.price || 0),
+                    quantity: Number(item.quantity || 1),
+                    notes: item.notes || null,
+                    modifications: item.modifications || null
+                })),
+                notes: order.notes || null
+            };
+        },
+
+        normalizeBackendOrder(order) {
+            if (!order) return null;
+            return {
+                id: Number(order.client_order_id || order.id),
+                backendId: order.id,
+                clientOrderId: order.client_order_id || String(order.id),
+                type: order.type,
+                tableNumber: order.table_number,
+                customerName: order.customer_name || '',
+                guests: order.guests || null,
+                items: (order.order_items || order.orderItems || []).map(item => ({
+                    id: item.recipe_id || item.id,
+                    name: item.name,
+                    nameHe: item.name,
+                    price: Number(item.price || 0),
+                    quantity: Number(item.quantity || 1),
+                    notes: item.notes || ''
+                })),
+                subtotal: Number(order.subtotal || 0),
+                tax: Number(order.tax || 0),
+                deliveryFee: Number(order.delivery_fee || 0),
+                total: Number(order.total || 0),
+                status: order.status || 'new',
+                timestamp: order.created_at ? new Date(order.created_at).getTime() : Date.now(),
+                backendSyncedAt: Date.now()
+            };
+        },
+
+        mergeBackendOrder(backendOrder) {
+            const normalized = this.normalizeBackendOrder(backendOrder);
+            if (!normalized) return;
+
+            const existingIndex = this.orders.findIndex(order =>
+                String(order.clientOrderId || order.id) === String(normalized.clientOrderId)
+                || Number(order.backendId) === Number(normalized.backendId)
+            );
+
+            if (existingIndex >= 0) {
+                this.orders[existingIndex] = {
+                    ...this.orders[existingIndex],
+                    backendId: normalized.backendId,
+                    clientOrderId: normalized.clientOrderId,
+                    backendSyncedAt: normalized.backendSyncedAt
+                };
+            } else {
+                this.orders.push(normalized);
+            }
+        },
+
+        async loadOrdersFromBackend() {
+            try {
+                const response = await this.backendRequest('/orders?per_page=200');
+                const orders = response?.data?.data || response?.data || [];
+
+                if (Array.isArray(orders)) {
+                    orders.forEach(order => this.mergeBackendOrder(order));
+                    this.saveOrders();
+                }
+            } catch (error) {
+                console.warn('Backend orders sync skipped:', error.message);
+            }
+        },
+
+        async persistOrderToBackend(order) {
+            try {
+                const response = await this.backendRequest('/orders', {
+                    method: 'POST',
+                    body: JSON.stringify(this.buildBackendOrderPayload(order))
+                });
+
+                if (response?.data) {
+                    order.backendId = response.data.id;
+                    order.clientOrderId = response.data.client_order_id || order.clientOrderId || String(order.id);
+                    order.backendSyncedAt = Date.now();
+                    this.saveOrders();
+                }
+            } catch (error) {
+                order.backendSyncError = error.message;
+                this.saveOrders();
+                console.warn('Order saved locally, backend sync failed:', error.message);
+            }
+        },
+
+        async sendPrintJob(order, type = 'receipt') {
+            if (this.settings?.printViaBackend === false) {
+                return;
+            }
+
+            try {
+                const body = order.backendId
+                    ? { type, order_id: order.backendId }
+                    : { type, order: this.buildBackendOrderPayload(order) };
+
+                await this.backendRequest('/print/jobs', {
+                    method: 'POST',
+                    body: JSON.stringify(body)
+                });
+            } catch (error) {
+                console.warn('Print job was not sent:', error.message);
+            }
+        },
         
         // Load settings from localStorage
-        loadSettings() {
-            const savedSettings = localStorage.getItem('restaurant_settings');
-            this.settings = savedSettings ? JSON.parse(savedSettings) : {
+        getDefaultSettings() {
+            return {
                 taxRate: 10,
                 deliveryFee: 5,
                 currency: 'EUR',
@@ -1162,7 +1327,26 @@ document.addEventListener('alpine:init', () => {
                 address: 'Yasou Taverna',
                 phone: '',
                 email: '',
-                website: ''
+                website: '',
+                receiptFooter: 'Thank you for dining with us!',
+                logo: '',
+                printLogo: true,
+                printHeader: true,
+                printFooter: true,
+                autoPrint: false,
+                receiptWidth: 80,
+                fontSize: 12,
+                backendEnabled: true,
+                backendUrl: 'http://127.0.0.1:8001/api',
+                printViaBackend: true
+            };
+        },
+
+        loadSettings() {
+            const savedSettings = localStorage.getItem('restaurant_settings');
+            this.settings = {
+                ...this.getDefaultSettings(),
+                ...(savedSettings ? JSON.parse(savedSettings) : {})
             };
         },
         
@@ -1555,9 +1739,13 @@ document.addEventListener('alpine:init', () => {
                     contactInfo: 'Contact Information',
                     receiptSettings: 'Receipt Settings',
                     printSettings: 'Print Settings',
+                    backendSettings: 'Backend Settings',
                     logoUpload: 'Upload Logo',
                     receiptFooter: 'Receipt Footer',
                     autoPrint: 'Auto Print',
+                    backendEnabled: 'Save orders to backend',
+                    backendUrl: 'Backend URL',
+                    printViaBackend: 'Print through backend',
                     receiptWidth: 'Receipt Width (mm)',
                     fontSize: 'Font Size (pt)'
                 };
@@ -1673,9 +1861,11 @@ document.addEventListener('alpine:init', () => {
             this.currentOrder.total = this.currentOrder.subtotal + this.currentOrder.tax + this.currentOrder.deliveryFee;
         },
         
-        placeOrder() {
+        async placeOrder() {
+            const clientOrderId = String(Date.now());
             const newOrder = {
-                id: Date.now(),
+                id: Number(clientOrderId),
+                clientOrderId,
                 type: this.orderType,
                 tableNumber: this.currentOrder.tableNumber,
                 items: [...this.currentOrder.items],
@@ -1689,6 +1879,9 @@ document.addEventListener('alpine:init', () => {
             
             this.orders.push(newOrder);
             this.saveOrders();
+            this.persistOrderToBackend(newOrder).then(() => {
+                this.sendPrintJob(newOrder, 'kitchen');
+            });
             
             // Automatically deduct stock from inventory
             this.deductStockFromOrder(newOrder);
@@ -1943,7 +2136,7 @@ document.addEventListener('alpine:init', () => {
         playKdsSound() {
             if (this.kdsSoundEnabled) {
                 const audio = document.getElementById('newOrderSound');
-                if (audio) {
+                if (audio && audio.currentSrc) {
                     audio.play().catch(e => console.log('Audio play failed:', e));
                 }
             }
@@ -2253,6 +2446,10 @@ document.addEventListener('alpine:init', () => {
         },
         
         printReceipt() {
+            if (this.currentReceipt) {
+                this.sendPrintJob(this.currentReceipt, 'receipt');
+            }
+
             const printWindow = window.open('', '_blank');
             const receiptContent = this.generateReceiptHTML();
             const isRtl = this.direction === 'rtl';
@@ -2736,14 +2933,61 @@ document.addEventListener('alpine:init', () => {
 
         getRecipeImage(recipe) {
             if (recipe?.image) {
+                if (recipe.image === 'images/fish-01.png') {
+                    return 'images/menu/food/Sea-Bream-Dorade.png';
+                }
+
                 return recipe.image;
             }
 
+            const imageFromMap = window.menuImageMap?.[this.getRecipeImageKey(recipe)];
+            if (imageFromMap) {
+                return imageFromMap;
+            }
+
             if (recipe?.name === 'Sea bream - Dorade' || recipe?.nameHe === 'דניס / צ׳יפורה') {
-                return 'images/fish-01.png';
+                return 'images/menu/food/Sea-Bream-Dorade.png';
             }
 
             return '';
+        },
+
+        getRecipeImageKey(recipe) {
+            const specialNames = {
+                'Cola / Zero': 'Coke-Zero',
+                'Sprite / Zero': 'Sprite-Zero',
+                'Water / Soda': 'Water-Soda',
+                'Juices: Orange / Lemonade / Cherry': 'Juices-Orange-Lemonade-Cherry',
+                'Sea bream - Dorade': 'Sea-Bream-Dorade',
+                'Sea bass - Loup de mer': 'Sea-Bass-Loup-De-Mer'
+            };
+            const englishName = recipe?.name || '';
+
+            if (specialNames[englishName]) {
+                return specialNames[englishName];
+            }
+
+            return englishName
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/&/g, 'and')
+                .replace(/[^a-zA-Z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '')
+                .replace(/-{2,}/g, '-');
+        },
+
+        getRecipeImageFolder(recipe) {
+            const category = recipe?.category || '';
+
+            if (category === 'Soft Drinks') {
+                return 'images/menu/drinks';
+            }
+
+            if (category === 'Alcoholic Drinks') {
+                return 'images/menu/alcohol';
+            }
+
+            return 'images/menu/food';
         },
 
         getOrderItemName(item) {
@@ -2844,6 +3088,11 @@ document.addEventListener('alpine:init', () => {
             return this.language === 'he' ? (labels[difficulty] || difficulty || '') : (difficulty || '');
         },
 
+        getMenuCategoryOrder(category) {
+            const order = this.recipeCategories.indexOf(category);
+            return order === -1 ? 999 : order;
+        },
+
         getFilteredRecipes() {
             let filteredRecipes = this.recipes.filter(recipe => recipe.isActive !== false);
             
@@ -2915,6 +3164,13 @@ document.addEventListener('alpine:init', () => {
                 let aValue, bValue;
                 
                 switch(sortBy) {
+                    case 'menu':
+                        aValue = this.getMenuCategoryOrder(a.category);
+                        bValue = this.getMenuCategoryOrder(b.category);
+                        if (aValue === bValue) {
+                            return (a.id || 0) - (b.id || 0);
+                        }
+                        break;
                     case 'name':
                         aValue = this.getRecipeName(a).toLowerCase();
                         bValue = this.getRecipeName(b).toLowerCase();
@@ -4519,22 +4775,7 @@ document.addEventListener('alpine:init', () => {
                     this.recipeCategories = ['Appetizer', 'Main Course', 'Dessert', 'Beverage', 'Pizza', 'Salad', 'Soup', 'Pasta', 'Seafood', 'Meat', 'Vegetarian'];
                     
                     // Reset settings to defaults
-                    this.settings = {
-                        restaurantName: 'My Restaurant',
-                        address: '',
-                        phone: '',
-                        email: '',
-                        website: '',
-                        taxRate: 10,
-                        deliveryFee: 2.99,
-                        currency: 'USD',
-                        receiptFooter: 'Thank you for your business!',
-                        printHeader: true,
-                        printFooter: true,
-                        autoPrint: false,
-                        receiptWidth: 80,
-                        fontSize: 12
-                    };
+                    this.settings = this.getDefaultSettings();
                     
                     // Reset current order
                     this.currentOrder = {
